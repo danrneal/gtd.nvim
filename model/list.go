@@ -9,6 +9,8 @@ import (
 )
 
 const (
+	// ListInbox is the reserved name for the "Inbox" list.
+	ListInbox = "Inbox"
 	// ListWaitingFor is the reserved name for the "Waiting For" list.
 	ListWaitingFor = "Waiting For"
 	// ListProjects is the reserved name for the "Projects" list.

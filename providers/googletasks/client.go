@@ -152,7 +152,7 @@ func (c *Client) UpdateList(ctx context.Context, list, currentList *model.List) 
 	}
 
 	updateList := *list
-	updateList.Items = []*model.Item{}
+	updateList.Items = make([]*model.Item, 0, len(list.Items))
 	for _, item := range list.Items {
 		hasNewDestList := item.ExternalListID != nil && *item.ExternalListID != *list.ExternalID
 		if item.Status != model.StatusDone || hasNewDestList {

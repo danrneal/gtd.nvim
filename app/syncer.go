@@ -174,7 +174,7 @@ func (ss *syncSession) syncListCreation(ctx context.Context, srcList *model.List
 		}
 
 		createdList := *srcList
-		createdList.Items = []*model.Item{}
+		createdList.Items = make([]*model.Item, 0, len(srcList.Items))
 		dstList = &createdList
 		listKey = ss.getKey(dstList)
 		ss.dstState.listsMap[listKey] = dstList

@@ -10,12 +10,12 @@ app/runner.go:172:statement/remove
 app/syncer.go:121:branch/if
 app/syncer.go:129:branch/if
 app/syncer.go:388:statement/remove
-model/list.go:167:numbers/incrementer
 model/list.go:169:numbers/incrementer
-model/list.go:184:numbers/incrementer
-model/list.go:188:numbers/incrementer
-model/list.go:203:numbers/incrementer
-model/list.go:207:numbers/incrementer
+model/list.go:171:numbers/incrementer
+model/list.go:186:numbers/incrementer
+model/list.go:190:numbers/incrementer
+model/list.go:205:numbers/incrementer
+model/list.go:209:numbers/incrementer
 providers/markdown/client.go:72:statement/remove
 providers/markdown/client.go:93:branch/if
 providers/markdown/client.go:140:branch/if
