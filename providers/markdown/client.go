@@ -347,7 +347,7 @@ func (c *Client) readFile() ([]model.List, error) {
 	}
 
 	if !bytes.Equal(fileBytes, renderedBuf.Bytes()) {
-		if err := c.writeFile(lists); err != nil {
+		if err := c.writeFile(lists, withModTime(stat.ModTime())); err != nil {
 			return nil, err
 		}
 	}
@@ -355,8 +355,27 @@ func (c *Client) readFile() ([]model.List, error) {
 	return lists, nil
 }
 
+type writeOption func(*writeOptions)
+
+type writeOptions struct {
+	modTime *time.Time
+}
+
+func withModTime(t time.Time) writeOption {
+	modTimeOpt := func(o *writeOptions) {
+		o.modTime = &t
+	}
+
+	return modTimeOpt
+}
+
 // writeFile renders the provided lists to Markdown and atomically overwrites the file.
-func (c *Client) writeFile(lists []model.List) error {
+func (c *Client) writeFile(lists []model.List, opts ...writeOption) error {
+	var options writeOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+
 	var buf bytes.Buffer
 	if err := render(&buf, lists); err != nil {
 		return fmt.Errorf("failed to render markdown file: %w", err)
@@ -380,12 +399,18 @@ func (c *Client) writeFile(lists []model.List) error {
 		return fmt.Errorf("failed to close markdown file: %w", err)
 	}
 
-	stat, err := os.Stat(c.filepath)
-	if err != nil {
-		return fmt.Errorf("failed to stat markdown file after writing: %w", err)
-	}
+	if options.modTime != nil {
+		if err := os.Chtimes(c.filepath, *options.modTime, *options.modTime); err != nil {
+			return fmt.Errorf("failed to restore original modification time: %w", err)
+		}
+	} else {
+		stat, err := os.Stat(c.filepath)
+		if err != nil {
+			return fmt.Errorf("failed to stat markdown file after writing: %w", err)
+		}
 
-	c.lastModTime = stat.ModTime()
+		c.lastModTime = stat.ModTime()
+	}
 
 	return nil
 }

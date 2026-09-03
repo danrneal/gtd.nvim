@@ -2133,7 +2133,9 @@ func TestClient_writeFile(t *testing.T) {
 		name          string
 		setup         func(t *testing.T) string
 		lists         []model.List
+		opts          []writeOption
 		want          string
+		wantModTime   *time.Time
 		wantErr       bool
 		wantErrTarget error
 	}{
@@ -2162,6 +2164,33 @@ func TestClient_writeFile(t *testing.T) {
 				},
 			},
 			want: "# Inbox (1)\n* [ ] Task 1\n\n",
+		},
+		{
+			name: "successfully writes file with preserved modification time",
+			setup: func(t *testing.T) string {
+				path := filepath.Join(t.TempDir(), "preserved_time.md")
+				if err := os.WriteFile(path, []byte("initial"), 0o600); err != nil {
+					t.Fatalf("failed to setup initial file: %v", err)
+				}
+
+				return path
+			},
+			lists: []model.List{
+				{
+					Name:     "Inbox",
+					Position: 0,
+					Status:   model.StatusOpen,
+					Items: []*model.Item{
+						{
+							Title:  "Task 1",
+							Status: model.StatusNotStarted,
+						},
+					},
+				},
+			},
+			opts:        []writeOption{withModTime(time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC))},
+			want:        "# Inbox (1)\n* [ ] Task 1\n\n",
+			wantModTime: func() *time.Time { t := time.Date(2023, 1, 1, 0, 0, 0, 0, time.UTC); return &t }(),
 		},
 		{
 			name: "failed to render markdown file",
@@ -2237,7 +2266,7 @@ func TestClient_writeFile(t *testing.T) {
 			logger := slog.New(slog.DiscardHandler)
 			client := NewClient(testPath, logger)
 
-			err := client.writeFile(tt.lists)
+			err := client.writeFile(tt.lists, tt.opts...)
 
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("writeFile() error = %v, wantErr %v", err, tt.wantErr)
@@ -2249,6 +2278,18 @@ func TestClient_writeFile(t *testing.T) {
 				}
 
 				return
+			}
+
+			if tt.wantModTime != nil {
+				var stat fs.FileInfo
+				stat, err = os.Stat(testPath)
+				if err != nil {
+					t.Fatalf("failed to stat test file: %v", err)
+				}
+
+				if !stat.ModTime().Equal(*tt.wantModTime) {
+					t.Errorf("writeFile() modTime = %v, want %v", stat.ModTime(), tt.wantModTime)
+				}
 			}
 
 			if !tt.wantErr && client.lastModTime.IsZero() {

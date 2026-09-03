@@ -26,7 +26,7 @@ providers/markdown/client.go:204:statement/remove
 providers/markdown/client.go:246:statement/remove
 providers/markdown/client.go:314:statement/remove
 providers/markdown/client.go:326:branch/if
-providers/markdown/client.go:399:branch/if
+providers/markdown/client.go:424:branch/if
 providers/markdown/parser.go:62:branch/case
 providers/markdown/watcher.go:99:branch/if
 providers/sqlite/store.go:64:branch/if
