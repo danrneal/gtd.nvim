@@ -624,7 +624,7 @@ func TestUpdateList(t *testing.T) {
 				return list
 			},
 			setupCurrent: func() *model.List {
-				return &model.List{
+				list := &model.List{
 					Name: "Old Name",
 					Items: []*model.Item{
 						{ID: "item-3"},
@@ -632,6 +632,8 @@ func TestUpdateList(t *testing.T) {
 						{ID: "item-2"},
 					},
 				}
+
+				return list
 			},
 			wantList: &model.List{
 				ID:       "list-1",
@@ -827,6 +829,17 @@ func TestUpdateList(t *testing.T) {
 
 				mustExec(t, db,
 					`
+						INSERT INTO lists (
+							id,
+							name,
+							modified
+						)
+						VALUES (?, ?, ?)
+					`, "list-2", "List 2", time.Now(),
+				)
+
+				mustExec(t, db,
+					`
 						INSERT INTO items (
 							id,
 							title,
@@ -838,7 +851,7 @@ func TestUpdateList(t *testing.T) {
 							external_id
 						)
 						VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-					`, "item-1", "Original Title", "", "list-1", "", time.Now(), time.Now(), "ext-I1",
+					`, "item-1", "Original Title", "", "list-2", "", time.Now(), time.Now(), "ext-I1",
 				)
 
 				return "list-1"
@@ -988,11 +1001,13 @@ func TestUpdateList(t *testing.T) {
 				return ""
 			},
 			setupList: func(_ string) model.List {
-				return model.List{
+				list := model.List{
 					ExternalID: new("non-existent-ext-id"),
 					Name:       "Headless Update",
 					Modified:   time.Now(),
 				}
+
+				return list
 			},
 			wantErr:       true,
 			wantErrTarget: ErrNotFound,
@@ -1073,7 +1088,8 @@ func TestUpdateList(t *testing.T) {
 
 				return list
 			},
-			wantErr: true,
+			wantErr:       true,
+			wantErrTarget: ErrNotFound,
 		},
 		{
 			name: "missing item identifiers",
@@ -1396,7 +1412,8 @@ func TestDeleteList(t *testing.T) {
 
 				return list
 			},
-			wantErr: true,
+			wantErr:       true,
+			wantErrTarget: ErrNotFound,
 		},
 		{
 			name: "context cancellation",
@@ -1511,7 +1528,7 @@ func TestCreateItem(t *testing.T) {
 		wantErrTarget error
 	}{
 		{
-			name: "honor provided item id",
+			name: "honor provided identifiers",
 			setupDB: func(t *testing.T, db *sql.DB) {
 				mustExec(t, db,
 					`
@@ -1519,20 +1536,52 @@ func TestCreateItem(t *testing.T) {
 						VALUES (?, ?, ?)
 					`, "list-1", "Inbox", listModified,
 				)
+
+				mustExec(t, db,
+					`
+						INSERT INTO items (
+							id,
+							list_id,
+							title,
+							description,
+							waiting_on,
+							modified,
+							created
+						) VALUES (?, ?, ?, ?, ?, ?, ?)
+					`, "existing-project", "list-1", "Project", "", "", time.Now(), time.Now(),
+				)
+
+				mustExec(t, db,
+					`
+						INSERT INTO items (
+							id,
+							list_id,
+							title,
+							description,
+							waiting_on,
+							modified,
+							created,
+							external_id
+						) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+					`, "poison-project", "list-1", "Poison", "", "", time.Now(), time.Now(), "ext-proj-1",
+				)
 			},
 			item: &model.Item{
-				ID:       "provided-item",
-				ListID:   "list-1",
-				Title:    "Honored Item",
-				Modified: time.Now(),
-				Created:  time.Now(),
+				ID:                "provided-item",
+				ListID:            "list-1",
+				ProjectID:         new("existing-project"),
+				ExternalProjectID: new("ext-proj-1"),
+				Title:             "Honored Item",
+				Modified:          time.Now(),
+				Created:           time.Now(),
 			},
 			wantItem: &model.Item{
-				ID:     "provided-item",
-				ListID: "list-1",
-				Title:  "Honored Item",
-				Status: model.StatusNotStarted,
-				Tags:   []string{},
+				ID:        "provided-item",
+				ListID:    "list-1",
+				ProjectID: new("existing-project"),
+				Title:     "Honored Item",
+				Status:    model.StatusNotStarted,
+				Tags:      []string{},
 			},
 		},
 		{
@@ -1604,6 +1653,7 @@ func TestCreateItem(t *testing.T) {
 						VALUES (?, ?, ?)
 					`, "list-1", "Inbox", listModified,
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO items (
@@ -1643,12 +1693,14 @@ func TestCreateItem(t *testing.T) {
 						VALUES (?, ?, ?)
 					`, "list-1", "Inbox", listModified,
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO lists (id, name, modified)
 						VALUES (?, ?, ?)
 					`, "list-projects", model.ListProjects, listModified,
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO items (
@@ -1821,6 +1873,7 @@ func TestCreateItem(t *testing.T) {
 						VALUES (?, ?, ?)
 					`, "list-1", "Inbox", listModified,
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO items (
@@ -2029,6 +2082,7 @@ func TestUpdateItem(t *testing.T) {
 			setupItem: func(id string) model.Item {
 				item := model.Item{
 					ID:          id,
+					ExternalID:  new("ext-id"),
 					ListID:      "list-1",
 					Position:    99,
 					Title:       "  Updated Title  ",
@@ -2042,6 +2096,7 @@ func TestUpdateItem(t *testing.T) {
 				return item
 			},
 			wantItem: &model.Item{
+				ExternalID:  new("ext-id"),
 				ListID:      "list-1",
 				Position:    0,
 				Title:       "Updated Title",
@@ -2080,6 +2135,7 @@ func TestUpdateItem(t *testing.T) {
 			setupItem: func(id string) model.Item {
 				item := model.Item{
 					ID:          id,
+					ExternalID:  new("ext-id"),
 					ListID:      "list-1",
 					Position:    99,
 					Title:       "  Updated Title  ",
@@ -2094,6 +2150,7 @@ func TestUpdateItem(t *testing.T) {
 				return item
 			},
 			wantItem: &model.Item{
+				ExternalID:  new("ext-id"),
 				ListID:      "list-1",
 				Position:    0,
 				Title:       "Updated Title",
@@ -2112,6 +2169,7 @@ func TestUpdateItem(t *testing.T) {
 						VALUES (?, ?, ?)
 					`, "list-1", "Inbox", listModified,
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO items (
@@ -2126,6 +2184,7 @@ func TestUpdateItem(t *testing.T) {
 						) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 					`, "existing-project-id", "list-1", "My Project", "", "", time.Now(), time.Now(), "ext-proj-1",
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO items (
@@ -2144,8 +2203,9 @@ func TestUpdateItem(t *testing.T) {
 				return "item-1"
 			},
 			setupItem: func(id string) model.Item {
-				return model.Item{
+				item := model.Item{
 					ID:                id,
+					ExternalID:        new("ext-id"),
 					ListID:            "list-1",
 					Position:          1,
 					Title:             "Task for Project",
@@ -2155,14 +2215,17 @@ func TestUpdateItem(t *testing.T) {
 					Modified:          time.Now(),
 					Created:           time.Now(),
 				}
+
+				return item
 			},
 			wantItem: &model.Item{
-				ListID:    "list-1",
-				Position:  1,
-				Title:     "Task for Project",
-				Status:    model.StatusNotStarted,
-				ProjectID: new("existing-project-id"),
-				Tags:      []string{},
+				ExternalID: new("ext-id"),
+				ListID:     "list-1",
+				Position:   1,
+				Title:      "Task for Project",
+				Status:     model.StatusNotStarted,
+				ProjectID:  new("existing-project-id"),
+				Tags:       []string{},
 			},
 		},
 		{
@@ -2174,12 +2237,14 @@ func TestUpdateItem(t *testing.T) {
 						VALUES (?, ?, ?)
 					`, "list-1", "Inbox", listModified,
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO lists (id, name, modified)
 						VALUES (?, ?, ?)
 					`, "list-projects", model.ListProjects, listModified,
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO items (
@@ -2194,6 +2259,7 @@ func TestUpdateItem(t *testing.T) {
 						) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 					`, "existing-project-id", "list-projects", "My Project", "", "", "proj-1", time.Now(), time.Now(),
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO items (
@@ -2212,8 +2278,9 @@ func TestUpdateItem(t *testing.T) {
 				return "item-1"
 			},
 			setupItem: func(id string) model.Item {
-				return model.Item{
+				item := model.Item{
 					ID:         id,
+					ExternalID: new("ext-id"),
 					ListID:     "list-1",
 					Position:   1,
 					Title:      "Task for Project",
@@ -2223,13 +2290,87 @@ func TestUpdateItem(t *testing.T) {
 					Modified:   time.Now(),
 					Created:    time.Now(),
 				}
+
+				return item
+			},
+			wantItem: &model.Item{
+				ExternalID: new("ext-id"),
+				ListID:     "list-1",
+				Position:   1,
+				Title:      "Task for Project",
+				Status:     model.StatusNotStarted,
+				ProjectID:  new("existing-project-id"),
+				Tags:       []string{},
+			},
+		},
+		{
+			name: "preserve project id when external id is nil and parent has no tag",
+			setupDB: func(t *testing.T, db *sql.DB) string {
+				mustExec(t, db,
+					`
+                           INSERT INTO lists (id, name, modified)
+                           VALUES (?, ?, ?)
+                       `, "list-1", "Inbox", listModified,
+				)
+
+				mustExec(t, db,
+					`
+                           INSERT INTO lists (id, name, modified)
+                           VALUES (?, ?, ?)
+                       `, "list-projects", model.ListProjects, listModified,
+				)
+
+				mustExec(t, db,
+					`
+                           INSERT INTO items (
+                               id,
+                               list_id,
+                               title,
+                               description,
+                               waiting_on,
+                               modified,
+                               created
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                       `, "proj", "list-projects", "Project", "", "", time.Now(), time.Now(),
+				)
+
+				mustExec(t, db,
+					`
+                           INSERT INTO items (
+                               id,
+                               list_id,
+                               project_id,
+                               position,
+                               title,
+                               description,
+                               waiting_on,
+                               modified,
+                               created
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       `, "item-1", "list-1", "proj", 1, "Original", "", "", time.Now(), time.Now(),
+				)
+
+				return "item-1"
+			},
+			setupItem: func(id string) model.Item {
+				item := model.Item{
+					ID:       id,
+					ListID:   "list-1",
+					Position: 1,
+					Title:    "Updated Task",
+					Status:   model.StatusNotStarted,
+					Modified: time.Now(),
+					Created:  time.Now(),
+				}
+
+				return item
 			},
 			wantItem: &model.Item{
 				ListID:    "list-1",
 				Position:  1,
-				Title:     "Task for Project",
+				Title:     "Updated Task",
 				Status:    model.StatusNotStarted,
-				ProjectID: new("existing-project-id"),
+				ProjectID: new("proj"),
 				Tags:      []string{},
 			},
 		},
@@ -2242,6 +2383,7 @@ func TestUpdateItem(t *testing.T) {
 						VALUES (?, ?, ?)
 					`, "list-1", "Inbox", listModified,
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO items (
@@ -2260,20 +2402,24 @@ func TestUpdateItem(t *testing.T) {
 				return "item-1"
 			},
 			setupItem: func(id string) model.Item {
-				return model.Item{
+				item := model.Item{
 					ID:                id,
+					ExternalID:        new("ext-id"),
 					ListID:            "list-1",
 					Title:             "Task for Missing Project",
 					ExternalProjectID: new("does-not-exist"),
 					Modified:          time.Now(),
 				}
+
+				return item
 			},
 			wantItem: &model.Item{
-				ListID:   "list-1",
-				Position: 1,
-				Title:    "Task for Missing Project",
-				Status:   model.StatusNotStarted,
-				Tags:     []string{},
+				ExternalID: new("ext-id"),
+				ListID:     "list-1",
+				Position:   1,
+				Title:      "Task for Missing Project",
+				Status:     model.StatusNotStarted,
+				Tags:       []string{},
 			},
 		},
 		{
@@ -2285,6 +2431,7 @@ func TestUpdateItem(t *testing.T) {
 						VALUES (?, ?, ?)
 					`, "list-1", "Inbox", listModified,
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO items (
@@ -2303,24 +2450,124 @@ func TestUpdateItem(t *testing.T) {
 				return "item-1"
 			},
 			setupItem: func(id string) model.Item {
-				return model.Item{
+				item := model.Item{
 					ID:         id,
+					ExternalID: new("ext-id"),
 					ListID:     "list-1",
 					Title:      "Task with Missing Tag",
 					ProjectTag: new("missing-tag"),
 					Modified:   time.Now(),
 				}
+
+				return item
+			},
+			wantItem: &model.Item{
+				ExternalID: new("ext-id"),
+				ListID:     "list-1",
+				Position:   1,
+				Title:      "Task with Missing Tag",
+				Status:     model.StatusNotStarted,
+				Tags:       []string{},
+			},
+		},
+		{
+			name: "update item fails when coalescing check finds no rows",
+			setupDB: func(t *testing.T, db *sql.DB) string {
+				mustExec(t, db,
+					`
+                           INSERT INTO lists (id, name, modified)
+                           VALUES (?, ?, ?)
+                       `, "list-1", "Inbox", listModified,
+				)
+
+				return "non-existent-id"
+			},
+			setupItem: func(id string) model.Item {
+				item := model.Item{
+					ID:       id,
+					ListID:   "list-1",
+					Title:    "Valid Update",
+					Modified: time.Now(),
+				}
+
+				return item
+			},
+			wantErr:       true,
+			wantErrTarget: ErrNotFound,
+		},
+		{
+			name: "do not coalesce project id when parent has a tag",
+			setupDB: func(t *testing.T, db *sql.DB) string {
+				mustExec(t, db,
+					`
+                           INSERT INTO lists (id, name, modified)
+                           VALUES (?, ?, ?)
+                       `, "list-1", "Inbox", listModified,
+				)
+
+				mustExec(t, db,
+					`
+                           INSERT INTO lists (id, name, modified)
+                           VALUES (?, ?, ?)
+                       `, "list-projects", model.ListProjects, listModified,
+				)
+
+				mustExec(t, db,
+					`
+                           INSERT INTO items (
+                               id,
+                               list_id,
+                               title,
+                               description,
+                               waiting_on,
+                               project_tag,
+                               modified,
+                               created
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                       `, "proj", "list-projects", "Project", "", "", "proj-1", time.Now(), time.Now(),
+				)
+
+				mustExec(t, db,
+					`
+                           INSERT INTO items (
+                               id,
+                               list_id,
+                               project_id,
+                               position,
+                               title,
+                               description,
+                               waiting_on,
+                               modified,
+                               created
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       `, "item-1", "list-1", "proj", 1, "Original", "", "", time.Now(), time.Now(),
+				)
+
+				return "item-1"
+			},
+			setupItem: func(id string) model.Item {
+				item := model.Item{
+					ID:       id,
+					ListID:   "list-1",
+					Position: 1,
+					Title:    "Updated Task",
+					Status:   model.StatusNotStarted,
+					Modified: time.Now(),
+					Created:  time.Now(),
+				}
+
+				return item
 			},
 			wantItem: &model.Item{
 				ListID:   "list-1",
 				Position: 1,
-				Title:    "Task with Missing Tag",
+				Title:    "Updated Task",
 				Status:   model.StatusNotStarted,
 				Tags:     []string{},
 			},
 		},
 		{
-			name: "update item by external id only",
+			name: "update item by external id only and break project link",
 			setupDB: func(t *testing.T, db *sql.DB) string {
 				mustExec(t, db,
 					`
@@ -2331,18 +2578,40 @@ func TestUpdateItem(t *testing.T) {
 
 				mustExec(t, db,
 					`
+						INSERT INTO lists (id, name, modified)
+						VALUES (?, ?, ?)
+					`, "list-projects", model.ListProjects, listModified,
+				)
+
+				mustExec(t, db,
+					`
+						INSERT INTO items (
+							id,
+							list_id,
+							title,
+							description,
+							waiting_on,
+							modified,
+							created
+						) VALUES (?, ?, ?, ?, ?, ?, ?)
+					`, "tagless-proj", "list-projects", "Project", "", "", time.Now(), time.Now(),
+				)
+
+				mustExec(t, db,
+					`
 						INSERT INTO items (
 							id,
 							title,
 							description,
 							list_id,
+							project_id,
 							waiting_on,
 							tags,
 							modified,
 							created,
 							external_id
-						) VALUES (?, ?, ?, ?, ?, '[]', ?, ?, ?)
-					`, "item-1", "Original", "", "list-1", "", time.Now(), time.Now(), "ext-I1",
+						) VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, ?)
+					`, "item-1", "Original", "", "list-1", "tagless-proj", "", time.Now(), time.Now(), "ext-I1",
 				)
 
 				return "item-1"
@@ -2375,6 +2644,7 @@ func TestUpdateItem(t *testing.T) {
 						VALUES (?, ?, ?, ?)
 					`, "list-1", "Inbox", listModified, "external-list-1",
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO items (
@@ -2395,6 +2665,7 @@ func TestUpdateItem(t *testing.T) {
 			setupItem: func(id string) model.Item {
 				item := model.Item{
 					ID:             id,
+					ExternalID:     new("ext-id"),
 					ListID:         "",
 					ExternalListID: new("external-list-1"),
 					Title:          "Updated Title",
@@ -2404,11 +2675,12 @@ func TestUpdateItem(t *testing.T) {
 				return item
 			},
 			wantItem: &model.Item{
-				ID:     "item-1",
-				ListID: "list-1",
-				Title:  "Updated Title",
-				Status: model.StatusNotStarted,
-				Tags:   []string{},
+				ExternalID: new("ext-id"),
+				ID:         "item-1",
+				ListID:     "list-1",
+				Title:      "Updated Title",
+				Status:     model.StatusNotStarted,
+				Tags:       []string{},
 			},
 		},
 		{
@@ -2441,12 +2713,13 @@ func TestUpdateItem(t *testing.T) {
 			},
 			setupItem: func(id string) model.Item {
 				item := model.Item{
-					ID:         id,
-					ListID:     "list-1",
-					Title:      "Updated",
-					Status:     model.StatusNotStarted,
-					ExternalID: nil,
-					Modified:   time.Now(),
+					ID:                id,
+					ListID:            "list-1",
+					Title:             "Updated",
+					Status:            model.StatusNotStarted,
+					ExternalProjectID: new("dummy-ext-proj-id"),
+					ExternalID:        nil,
+					Modified:          time.Now(),
 				}
 
 				return item
@@ -2529,10 +2802,11 @@ func TestUpdateItem(t *testing.T) {
 			},
 			setupItem: func(id string) model.Item {
 				item := model.Item{
-					ID:       id,
-					ListID:   "list-1",
-					Title:    "",
-					Modified: time.Now(),
+					ID:         id,
+					ExternalID: new("ext-id"),
+					ListID:     "list-1",
+					Title:      "",
+					Modified:   time.Now(),
 				}
 
 				return item
@@ -2553,15 +2827,17 @@ func TestUpdateItem(t *testing.T) {
 			},
 			setupItem: func(id string) model.Item {
 				item := model.Item{
-					ID:       id,
-					ListID:   "list-1",
-					Title:    "Valid",
-					Modified: time.Now(),
+					ID:         id,
+					ExternalID: new("ext-id"),
+					ListID:     "list-1",
+					Title:      "Valid",
+					Modified:   time.Now(),
 				}
 
 				return item
 			},
-			wantErr: true,
+			wantErr:       true,
+			wantErrTarget: ErrNotFound,
 		},
 		{
 			name: "update item fails when resolving non-existent external list id",
@@ -2593,6 +2869,7 @@ func TestUpdateItem(t *testing.T) {
 			setupItem: func(id string) model.Item {
 				item := model.Item{
 					ID:             id,
+					ExternalID:     new("ext-id"),
 					ListID:         "",
 					ExternalListID: new("fake-external-list"),
 					Title:          "Updated Title",
@@ -2633,10 +2910,11 @@ func TestUpdateItem(t *testing.T) {
 			},
 			setupItem: func(id string) model.Item {
 				item := model.Item{
-					ID:       id,
-					ListID:   "list-1",
-					Title:    "Valid",
-					Modified: time.Now(),
+					ID:         id,
+					ExternalID: new("ext-id"),
+					ListID:     "list-1",
+					Title:      "Valid",
+					Modified:   time.Now(),
 				}
 
 				return item
@@ -2658,6 +2936,7 @@ func TestUpdateItem(t *testing.T) {
 						VALUES (?, ?, ?)
 					`, "list-1", "Inbox", listModified,
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO items (
@@ -2672,6 +2951,7 @@ func TestUpdateItem(t *testing.T) {
 						) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 					`, "item-to-update", "Valid Item", "", "list-1", "", "[]", time.Now(), time.Now(),
 				)
+
 				mustExec(t, db,
 					`
 						INSERT INTO items (
@@ -2691,10 +2971,11 @@ func TestUpdateItem(t *testing.T) {
 			},
 			setupItem: func(id string) model.Item {
 				item := model.Item{
-					ID:       id,
-					ListID:   "list-1",
-					Title:    "Updated Valid Item",
-					Modified: time.Now(),
+					ID:         id,
+					ExternalID: new("ext-id"),
+					ListID:     "list-1",
+					Title:      "Updated Valid Item",
+					Modified:   time.Now(),
 				}
 
 				return item
@@ -2930,7 +3211,8 @@ func TestDeleteItem(t *testing.T) {
 
 				return item
 			},
-			wantErr: true,
+			wantErr:       true,
+			wantErrTarget: ErrNotFound,
 		},
 		{
 			name: "context cancellation",

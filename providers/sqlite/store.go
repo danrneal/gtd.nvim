@@ -433,7 +433,7 @@ func (s *Store) execUpdateList(ctx context.Context, tx *sql.Tx, list *model.List
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("list with ID %q not found", list.ID)
+		return fmt.Errorf("list with ID %q: %w", list.ID, ErrNotFound)
 	}
 
 	return nil
@@ -771,7 +771,7 @@ func (s *Store) getProjectID(ctx context.Context, tx *sql.Tx, item *model.Item) 
 	}
 
 	if item.ProjectTag != nil {
-		var projectID string
+		var projectID *string
 		query := `
 			SELECT i.id
 			FROM items i
@@ -789,10 +789,39 @@ func (s *Store) getProjectID(ctx context.Context, tx *sql.Tx, item *model.Item) 
 			return nil, fmt.Errorf("failed to scan project ID: %w", err)
 		}
 
-		return &projectID, nil
+		return projectID, nil
 	}
 
-	return nil, errors.New("externalProjectID and projectTag are both nil")
+	if item.ProjectID == nil {
+		var projectID, projectTag *string
+		query := `
+			SELECT
+				i.project_id,
+				project.project_tag
+			FROM items i
+			LEFT JOIN items project ON i.project_id = project.id
+			WHERE i.id = ?
+		`
+
+		row := tx.QueryRowContext(ctx, query, item.ID)
+		if err := row.Scan(&projectID, &projectTag); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("item not found when checking coalescing state: %w", ErrNotFound)
+			}
+
+			return nil, fmt.Errorf("failed to check current project state: %w", err)
+		}
+
+		if projectID == nil || projectTag != nil {
+			return nil, fmt.Errorf("no tagless parent project found to coalesce: %w", ErrNotFound)
+		}
+
+		return projectID, nil
+	}
+
+	return nil, errors.New(
+		"unable to resolve project: externalProjectID and projectTag are nil, and projectID is already set",
+	)
 }
 
 // UpdateItem updates an existing item in the database.
@@ -866,7 +895,8 @@ func (s *Store) execUpdateItem(ctx context.Context, tx *sql.Tx, list *model.List
 	var projectTag *string
 	if strings.HasPrefix(list.Name, model.ListProjects) {
 		projectTag = item.ProjectTag
-	} else if item.ProjectID == nil && (item.ExternalProjectID != nil || item.ProjectTag != nil) {
+	} else if item.ProjectID == nil &&
+		(item.ExternalProjectID != nil || item.ProjectTag != nil || item.ExternalID == nil) {
 		var projectID *string
 		if projectID, err = s.getProjectID(ctx, tx, item); err == nil {
 			item.ProjectID = projectID
@@ -919,7 +949,7 @@ func (s *Store) execUpdateItem(ctx context.Context, tx *sql.Tx, list *model.List
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("item with ID %q not found", item.ID)
+		return fmt.Errorf("item with ID %q: %w", item.ID, ErrNotFound)
 	}
 
 	return nil
@@ -975,7 +1005,7 @@ func (s *Store) batchMoveItems(ctx context.Context, tx *sql.Tx, items []*model.I
 		}
 
 		if rowsAffected == 0 {
-			return fmt.Errorf("item with ID %q not found", item.ID)
+			return fmt.Errorf("item with ID %q: %w", item.ID, ErrNotFound)
 		}
 	}
 
@@ -1051,7 +1081,7 @@ func (s *Store) deleteResource(ctx context.Context, resource model.Resource) err
 	}
 
 	if rowsAffected == 0 {
-		return fmt.Errorf("resource with ID %q not found", resourceID)
+		return fmt.Errorf("resource with ID %q: %w", resourceID, ErrNotFound)
 	}
 
 	if err := tx.Commit(); err != nil {
