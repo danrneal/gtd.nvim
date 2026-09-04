@@ -895,6 +895,21 @@ func (s *Store) execUpdateItem(ctx context.Context, tx *sql.Tx, list *model.List
 	var projectTag *string
 	if strings.HasPrefix(list.Name, model.ListProjects) {
 		projectTag = item.ProjectTag
+		query := `
+			UPDATE items
+			SET modified = ?
+			WHERE
+  				project_id = ?
+  				AND ? IS NOT (
+    				SELECT project_tag
+    				FROM items
+    				WHERE id = ?
+  				);
+		`
+
+		if _, err = tx.ExecContext(ctx, query, item.Modified, item.ID, projectTag, item.ID); err != nil {
+			return fmt.Errorf("failed to update project next action modified timestamps: %w", err)
+		}
 	} else if item.ProjectID == nil &&
 		(item.ExternalProjectID != nil || item.ProjectTag != nil || item.ExternalID == nil) {
 		var projectID *string
@@ -1067,6 +1082,13 @@ func (s *Store) deleteResource(ctx context.Context, resource model.Resource) err
 		resourceID, err = getResourceID(ctx, tx, resource.GetExternalID())
 		if err != nil {
 			return err
+		}
+	}
+
+	if _, ok := resource.(*model.Item); ok {
+		projQuery := `UPDATE items SET modified = ? WHERE project_id = ?`
+		if _, err = tx.ExecContext(ctx, projQuery, time.Now(), resourceID); err != nil {
+			return fmt.Errorf("failed to update project next action modified timestamps: %w", err)
 		}
 	}
 
